@@ -28,6 +28,16 @@ This plugin teaches Claude to:
 /plugin install ai-expert@auval-plugins
 ```
 
+**Step 3 - Tell claude to always use the skill**
+copy this to CLAUDE.md
+```
+## domain knowledge
+
+- mandatory: every task begins by reading `expert/index.md`.
+- mandatory: every task, after completion, apply the expert retrospective.
+
+```
+
 ## Project structure after setup
 
 ```
