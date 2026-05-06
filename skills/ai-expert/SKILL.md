@@ -63,13 +63,44 @@ When `expert/index.md` does not exist, create it with this template:
 ```markdown
 # Domain Experts
 
-Purpose: save tokens for future agents by documenting domain knowledge that is important,
-non-obvious, and expensive to reconstruct from code alone.
+Purpose: save tokens for future agents by documenting domain knowledge that is important, non-obvious, and expensive to reconstruct from code alone.
 
 Every agent that reads or benefits from this folder must keep it up to date:
 - remove or rewrite obsolete facts
 - add new useful domain facts when they are stable and non-obvious
 - keep entries concise and high-signal
+
+Boundaries:
+- include only important facts that usually require tracing multiple files, flows, or semantic layers
+- do not restate code that is obvious from one file read or one grep
+- do not turn this folder into general documentation, task history, or changelog notes
+
+When to read:
+- read this index at the start of every task
+- treat the index as the fixed context fee; individual expert files remain selective
+- read a domain file only when the task clearly touches that domain and the file is likely to reduce exploration
+- prefer reading one relevant domain file, not the whole folder
+
+When not to read:
+- do not read domain files by default
+- do not read them for narrow local edits whose ownership is already obvious from nearby code
+- keep context as small as possible
+
+Each expert file should contain only:
+- high-level architecture of the domain
+- the files that actually own the domain, and what each file contributes
+- non-obvious, high-value deductions that usually require tracing multiple flows
+
+Do not include:
+- direct restatements of code that are obvious from a quick read
+- broad project documentation
+- task history or bug diary details unless they reveal a stable domain invariant
+
+Retrospective:
+- what did you need to explore in this session that a future agent shouldn't have to?
+  if you found something important AND non-obvious that can't be inferred from a single grep or standard Android conventions,
+  then update the relevant the expert file for the domain(s), or create a new expert file if not existing.
+- DO NOT add too narrow insights! only insights useful for future agents working on the same domain but A DIFFERENT TASK.
 
 ## Entries
 (none yet — add domain files as you discover non-obvious knowledge)
