@@ -1,0 +1,11 @@
+{
+  "name": "auval-plugins",
+  "owner": { "name": "Amir Uval" },
+  "plugins": [
+    {
+      "name": "ai-expert",
+      "source": "https://github.com/auval/ai-expert-skill",
+      "description": "Maintains a token-efficient expert/ domain knowledge folder so AI agents never re-explore non-obvious project facts."
+    }
+  ]
+}

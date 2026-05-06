@@ -1,0 +1,8 @@
+{
+  "name": "ai-expert",
+  "description": "Manages a token-efficient domain knowledge folder (expert/) that future AI agents can read to avoid re-exploring non-obvious project facts.",
+  "author": {
+    "name": "Amir Uval",
+    "email": "uval.mail@gmail.com"
+  }
+}
