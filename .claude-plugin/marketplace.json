@@ -4,10 +4,7 @@
   "plugins": [
     {
       "name": "domain-expert-installer",
-      "source": {
-        "source": "github",
-        "repo": "auval/ai-expert-skill"
-      },
+      "source": ".",
       "description": "One-time installer for a hook-enforced cross-agent domain knowledge system: wires expert/ files, Claude Code hooks, and a git post-commit hook into any repo."
     }
   ]
