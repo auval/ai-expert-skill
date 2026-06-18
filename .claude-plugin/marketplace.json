@@ -3,9 +3,9 @@
   "owner": { "name": "Amir Uval" },
   "plugins": [
     {
-      "name": "ai-expert",
+      "name": "domain-expert-installer",
       "source": "https://github.com/auval/ai-expert-skill",
-      "description": "Maintains a token-efficient expert/ domain knowledge folder so AI agents never re-explore non-obvious project facts."
+      "description": "One-time installer for a hook-enforced cross-agent domain knowledge system: wires expert/ files, Claude Code hooks, and a git post-commit hook into any repo."
     }
   ]
 }

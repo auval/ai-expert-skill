@@ -1,6 +1,7 @@
 {
-  "name": "ai-expert",
-  "description": "Manages a token-efficient domain knowledge folder (expert/) that future AI agents can read to avoid re-exploring non-obvious project facts.",
+  "name": "domain-expert-installer",
+  "description": "One-time installer that wires a hook-enforced domain knowledge system (expert/ folder + Claude Code hooks + git post-commit hook) into any repo, so future agents read accumulated domain knowledge automatically and contribute back before context degrades.",
+  "version": "1.0.0",
   "author": {
     "name": "Amir Uval",
     "email": "uval.mail@gmail.com"
