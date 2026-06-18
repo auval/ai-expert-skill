@@ -31,6 +31,8 @@ Even within a single session, quality degrades as the context window fills up.
 
 ![Context Rot: How Output Quality Degrades as Context Fills Up](./context_rot.png)
 
+*Image credit: [Vincent van de Ven — "Context Rot & Claude Code Automatic Rotation"](https://vincentvandeth.nl/blog/context-rot-claude-code-automatic-rotation).*
+
 - **Healthy zone (0–65%)** — output quality is stable and high.
 - **Context rot zone (65–80%)** — the agent works with an increasingly compressed view of its own
   prior reasoning; early insights become harder to surface accurately.
