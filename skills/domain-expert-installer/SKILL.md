@@ -78,29 +78,35 @@ Intercepts writes to any `expert/*.md` file and injects a quality challenge befo
 
 ```bash
 #!/usr/bin/env bash
-# Quality gate for expert file writes. Challenges the agent to justify every addition
-# against the signal bar before the write lands on disk.
+# Quality gate for expert file writes. Injects a challenge so the agent justifies
+# every addition against the signal bar. Advisory (does not block the write).
+#
+# PreToolUse stdout is NOT shown to the model — it only reaches the debug log — so the
+# challenge must be returned as `hookSpecificOutput.additionalContext` in JSON on exit 0.
 set -euo pipefail
 
 PAYLOAD=$(cat)
 TOOL=$(echo "$PAYLOAD" | jq -r '.tool_name // ""')
-FILE=""
+FILE=$(echo "$PAYLOAD" | jq -r '.tool_input.file_path // ""')
 
-if [[ "$TOOL" == "Write" ]]; then
-  FILE=$(echo "$PAYLOAD" | jq -r '.tool_input.file_path // ""')
-elif [[ "$TOOL" == "Edit" || "$TOOL" == "MultiEdit" ]]; then
-  FILE=$(echo "$PAYLOAD" | jq -r '.tool_input.file_path // ""')
-fi
-
-# Only intercept expert/*.md files
+# Only intercept Write/Edit/MultiEdit targeting expert/*.md files
+case "$TOOL" in Write|Edit|MultiEdit) ;; *) exit 0 ;; esac
 [[ "$FILE" == */expert/*.md ]] || exit 0
 
-echo "## Expert File Quality Gate"
-echo "You are about to write to an expert file. Before proceeding, challenge every insight you are adding:"
-echo "- Can it be found with a single grep or one file read? → do NOT add it"
-echo "- Does understanding it require tracing multiple files, flows, or semantic layers? → belongs here"
-echo "- Is it stable and reusable across different future tasks? → task-specific details do not belong here"
-echo "Revise or discard anything that does not pass all three checks before writing."
+read -r -d '' MSG <<'EOF' || true
+Expert File Quality Gate — before this write lands, challenge every insight you are adding:
+- Can it be found with a single grep or one file read? → do NOT add it
+- Does understanding it require tracing multiple files, flows, or semantic layers? → it belongs here
+- Is it stable and reusable across different future tasks? → task-specific details do not belong here
+Revise or discard anything that does not pass all three checks before writing.
+EOF
+
+jq -n --arg ctx "$MSG" '{
+  hookSpecificOutput: {
+    hookEventName: "PreToolUse",
+    additionalContext: $ctx
+  }
+}'
 ```
 
 ### Hook 3 — session-compact-expert.sh (PostCompact)
@@ -123,36 +129,61 @@ touch "/tmp/expert-compacted-${SESSION_ID}"
 
 ### Hook 4 — session-monitor-expert.sh (PostToolUse)
 
-Signals an expert retrospective when the context window reaches ~65% used — inside the healthy
-zone, before context rot. Fires once per session; skips if compaction has already occurred.
+Signals an expert retrospective when context usage reaches ~65% — inside the healthy zone, before
+context rot. Fires once per session; skips if compaction has already occurred.
+
+Hooks do **not** expose context-window usage, so this script derives it from the transcript: the
+latest assistant turn's `usage` reflects the full prompt sent to the model — i.e. everything
+currently in context. The context-window size and trigger percentage are overridable via the
+`EXPERT_CONTEXT_WINDOW` and `EXPERT_RETRO_THRESHOLD` environment variables.
 
 `<target-repo>/.claude/hooks/session-monitor-expert.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Signals an expert retrospective when context window reaches ~60-65%.
-# Fires once per session via a session-scoped state file.
-# Skips if compaction has already occurred (context is no longer trustworthy).
+# Signals an expert retrospective when context usage reaches ~65%.
+# Hooks don't expose context size, so it's derived from the transcript (the last
+# assistant turn's input-side token usage = everything currently in context).
+# Fires once per session; skips if compaction has already occurred.
+#
+# PostToolUse stdout is NOT shown to the model, so the nudge is returned as
+# `hookSpecificOutput.additionalContext` in JSON on exit 0.
 set -euo pipefail
 
 PAYLOAD=$(cat)
 SESSION_ID=$(echo "$PAYLOAD" | jq -r '.session_id // "unknown"')
-REMAINING_PCT=$(echo "$PAYLOAD" | jq -r '.context_window.remaining_pct // 100')
+TRANSCRIPT=$(echo "$PAYLOAD" | jq -r '.transcript_path // ""')
 
 # Compaction occurred — context is lossy, skip retro
 [[ -f "/tmp/expert-compacted-${SESSION_ID}" ]] && exit 0
 
 STATE_FILE="/tmp/expert-signal-${SESSION_ID}"
-
 [[ -f "$STATE_FILE" ]] && exit 0
-# remaining_pct counts down from 100; trigger when 35% or less remains (= 65%+ used)
-(( $(echo "$REMAINING_PCT > 35" | bc -l) )) && exit 0
+[[ -r "$TRANSCRIPT" ]] || exit 0
+
+# Context-window size (tokens) and the % at which to fire. Override via env if needed.
+CONTEXT_WINDOW=${EXPERT_CONTEXT_WINDOW:-200000}
+THRESHOLD_PCT=${EXPERT_RETRO_THRESHOLD:-65}
+
+# Latest usage entry in the transcript = full prompt size of the most recent turn.
+USED=$(jq -rs '
+  [ .[]
+    | (.message.usage // .usage)
+    | select(type == "object")
+    | (.input_tokens // 0) + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)
+  ] | last // 0' "$TRANSCRIPT" 2>/dev/null || echo 0)
+
+[[ "$USED" =~ ^[0-9]+$ ]] || exit 0
+(( USED == 0 )) && exit 0
+
+USED_PCT=$(( USED * 100 / CONTEXT_WINDOW ))
+(( USED_PCT < THRESHOLD_PCT )) && exit 0
 
 touch "$STATE_FILE"
-USED_PCT=$(echo "100 - $REMAINING_PCT" | bc)
-echo "## Expert Retrospective Signal"
-echo "Context is ~${USED_PCT}% full. Do a partial expert retrospective now while context is still crisp:"
-echo "Ask what you have discovered that a future agent shouldn't have to rediscover, and update expert/index.md."
+MSG="Expert Retrospective Signal — context is ~${USED_PCT}% full. Do a partial expert retrospective now while context is still crisp: ask what you have discovered that a future agent shouldn't have to rediscover, and update expert/index.md."
+jq -n --arg ctx "$MSG" '{
+  hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: $ctx }
+}'
 ```
 
 ### Hook 5 — session-stop-expert.sh (PostToolUse: Bash)
@@ -169,13 +200,16 @@ git `post-commit` hook (Step 3b) writes a marker; this script reads and consumes
 # The marker is written by .git/hooks/post-commit; this script just consumes it.
 # Fires as a PostToolUse/Bash hook; exits silently when no commit has occurred.
 # Skips if the 65% context hook already ran a retro, or if compaction has occurred.
+#
+# PostToolUse stdout is NOT shown to the model, so the nudge is returned as
+# `hookSpecificOutput.additionalContext` in JSON on exit 0.
 set -euo pipefail
 
 PAYLOAD=$(cat)
 SESSION_ID=$(echo "$PAYLOAD" | jq -r '.session_id // "unknown"')
 
 REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || echo "")"
-REPO_HASH=$(echo "$REPO_ROOT" | md5 | cut -c1-8)
+REPO_HASH=$(printf '%s' "$REPO_ROOT" | cksum | cut -d' ' -f1)
 MARKER="/tmp/claude-expert-retrospective-${REPO_HASH}"
 
 [[ -f "$MARKER" ]] || exit 0
@@ -187,9 +221,10 @@ rm -f "$MARKER"
 # 65% context hook already ran a retro this session — skip to avoid duplication
 [[ -f "/tmp/expert-signal-${SESSION_ID}" ]] && exit 0
 
-echo "## Expert Retrospective"
-echo "A commit was just made. Ask: did I discover anything in this task that a future agent shouldn't have to rediscover?"
-echo "If yes, update the relevant file in expert/ now. Only stable, reusable insights — not task history or one-off details."
+MSG="Expert Retrospective — a commit was just made. Ask: did I discover anything in this task that a future agent shouldn't have to rediscover? If yes, update the relevant file in expert/ now. Only stable, reusable insights — not task history or one-off details."
+jq -n --arg ctx "$MSG" '{
+  hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: $ctx }
+}'
 ```
 
 Make all five scripts executable:
@@ -210,7 +245,9 @@ commits the user makes outside Claude:
 ```bash
 #!/usr/bin/env bash
 # Signals Claude Code to run an expert retrospective after any commit.
-REPO_HASH=$(git rev-parse --show-toplevel | md5 | cut -c1-8)
+# Uses cksum (POSIX, portable) so the hash matches session-stop-expert.sh on every OS.
+REPO_ROOT=$(git rev-parse --show-toplevel)
+REPO_HASH=$(printf '%s' "$REPO_ROOT" | cksum | cut -d' ' -f1)
 touch "/tmp/claude-expert-retrospective-${REPO_HASH}"
 ```
 
